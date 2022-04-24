@@ -59,7 +59,7 @@ class BuckClass:
         self.x3 = 0
         self.x4 = 0
         self.x5 = 0
-        self.x6 = 0
+        self.x6 = 0 #
         '''
         # -----------------------------------------------------------------------
         # Atributos de entradas a manejar - decide funciones a utilizar para
