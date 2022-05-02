@@ -23,6 +23,9 @@ class BuckClass:
 
     def __init__(self, dcdc_config):
 
+        steps = 10000
+        steady = 2000
+
         self.modelo = dcdc_config['modelo']
 
         # Componentes del convertidor
@@ -51,6 +54,11 @@ class BuckClass:
         self.type_rload = dcdc_config['type_rload']
         self.vals_vin = dcdc_config['vals_vin']
         self.vals_rload = dcdc_config['vals_rload']
+
+        self.kp = dcdc_config['kp']
+        self.ki = dcdc_config['ki']
+        self.kd = dcdc_config['kd']
+        self.error = np.zeros(steps+steady)
 
         # todo: borrar si no lo utilizas al final
         '''
@@ -266,7 +274,10 @@ class BuckClass:
         self.i_li = i_Li_T
         self.v_ix = v_ix_T
 
-    # ---------------- Level 1b - lvl1b ------------------------------- #
+    # -------------------------------------------------------------------------------- #
+    # -------------------------- Level 1b - lvl1b ------------------------------------ #
+    # -------------------------------------------------------------------------------- #
+
     def eval_genomes_mp_buck_lvl1b(self, genomes, config):
         net = neat.nn.FeedForwardNetwork.create(genomes, config)
         genomes.fitness = BuckClass.fitness_buck_lvl1b(self, net)
@@ -422,8 +433,169 @@ class BuckClass:
             plt.show()
         plt.close()
 
+    # --------------------------------------------------------------------------------- #
+    # -------------------------- Level 1b - l1_pid ------------------------------------ #
+    # --------------------------------------------------------------------------------- #
 
+    def eval_genomes_mp_buck_l1_pid(self, genomes, config):
 
+        net = neat.nn.FeedForwardNetwork.create(genomes, config)
+        genomes.fitness = BuckClass.fitness_buck_l1_pid(self, net)
+        return genomes.fitness
+
+    def eval_genomes_single_buck_l1_pid(self, genomes, config):
+        # single process
+        for genome_id, genome in genomes:
+            # net = RecurrentNet.create(genome, config,1)
+            net = neat.nn.FeedForwardNetwork.create(genome, config)
+            genome.fitness = BuckClass.fitness_buck_l1_pid(self, net)
+
+    def fitness_buck_l1_pid(self, net):
+        """
+        Función que evalúa el fitness del fenotipo producido  dada una cierta ANN
+        :param net:
+        :return fitness: El fitness se calcula como 1/e**(-error_total). De esta forma cuando
+        el error total es cero el fitness es 1 y conforme aumenta el fitness
+        disminuye tendiendo a cero cuando el error tiende infinito
+        """
+        vout = self.run_buck_simulation_l1_pid(net)[1]
+        error = (vout - self.target_vout)
+        error[0:BuckClass.steady] = 0
+        error = np.absolute(error)
+        #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
+        error_tot = error.sum()/10000
+        return np.exp(-error_tot)
+
+    def run_buck_simulation_l1_pid(self, net, steps=steps+steady):
+
+        i_lout_record = np.zeros(steps)
+        vout_record = np.ones(steps) * self.v_out
+        v_ix_record = np.zeros(steps)
+        i_li_record = np.zeros(steps)
+        duty_record = np.zeros(steps+1)
+
+        u_i = 0
+        # Ejecuta la simulación
+        for i in range(2, steps-1):
+            duty_record[i] = self.duty
+
+            # Aplica la salida de RN y obtiene nuevo estado. En realidad no hace falta
+            # pasar self.duty, puedo leerlo dentro de buck_status_update pero por claridad...
+            self.buck_status_update_l1_pid(self.sequence_vin[i],
+                                           self.sequence_rload[i],
+                                           self.duty)
+
+            # Activa la RN y obtiene su salida
+            output_ann = net.activate([self.sequence_rload[i],
+                                      self.v_out,
+                                      vout_record[i-1],  # ])[0]
+                                      vout_record[i-2]])[0]   # self.x2,
+
+            self.error[i] = self.target_vout - self.v_out
+            u_p = self.kp * self.error[i]
+            u_i = u_i + self.ki * self.error[i]
+            u_i = min(max(u_i, 0), 1)
+            u_d = self.kd * (self.error[i] - self.error[i-1])
+
+            self.duty = u_p + u_i + u_d + 0.5 + output_ann
+
+            self.duty = min(max(self.duty, 0.01), 0.99)
+            # Record estado
+            i_lout_record[i] = self.i_lout
+            vout_record[i] = self.v_out
+            v_ix_record[i] = self.v_ix
+            i_li_record[i] = self.i_li
+
+        return i_lout_record, vout_record, v_ix_record, i_li_record, duty_record
+
+    # buck_status_update equiv. a do_step
+    def buck_status_update_l1_pid(self, v_in, r_load, duty):
+        """
+        Actualiza el estado del convertidor en función de su estado anterior y de la variables
+        de entrada (Vin, Vout, D) en el intervalo actual.
+        Esta versión de la función se basa en la impedancia de carga (r_load). Debido al
+        modelado escogido es el parámetro a utilizar para representar un comportamiento real
+        ("no forzado") del convertidor. Calcular i_load como dependiente del valor actual
+        de v_out no es correcto.
+        :param v_in:
+        :param r_load:
+        :param duty:
+        :return:
+        """
+        i_load = self.v_out/r_load
+
+        # Cálculo de rizados en output inductance para los 2 subintervalos [0,DT]
+        delta_iL_0_DT = 1.0 / self.l_out * (v_in - self.i_lout*self.res_hs - self.v_out) * duty * self.T  # eq.6
+
+        # Cálculo del pico de corriente
+        ilout_DT = self.i_lout + delta_iL_0_DT  # eq.5
+
+        # Rizado en Lout para [DT, T]
+        delta_iL_DT_T = 1.0 / self.l_out * (self.v_out + ilout_DT * self.res_ls) * (1 - duty) * self.T  # eq.7
+
+        # Valores medios de la corrient en los 2 subintervalos
+        ilout_avg_DT_T = ilout_DT + delta_iL_DT_T/2                                             # eq.3
+        ilout_avg_0_DT = self.i_lout + delta_iL_0_DT                                            # eq.2
+
+        # Valor medio de i_lout en el periodo
+        ilout_avg_0_T = ilout_avg_0_DT * duty + (1.0 - duty) * ilout_avg_DT_T                   # eq.4
+
+        # Actualiza i_lout
+        self.i_lout = self.i_lout + self.T/self.l_out * \
+                      (v_in*duty - self.v_out - ilout_avg_0_T*(self.res_hs*duty + self.res_ls*(1.0-duty)))   # eq.1
+
+        # Actualiza v_out
+        self.v_out = self.v_out + 1.0/self.c_out * (ilout_avg_0_T - i_load) * self.T            # eq.8
+
+    def plot_respuesta_buck_l1_pid(self, net, tinic=0, tfinal=None, view=False, filename='salida.svg'):
+        """ Plots the population's average and best fitness. """
+        if plt is None:
+            warnings.warn("This display is not available due to a missing optional dependency (matplotlib)")
+            return
+
+        simul_results = self.run_buck_simulation_l1_pid(net)
+
+        if tfinal is None:
+            tfinal = len(simul_results[0])
+
+        simul_lenght = len(simul_results[0])
+        t = np.linspace(0, simul_lenght, simul_lenght)
+
+        fig, axs = plt.subplots(4, 2, figsize=(18, 24))
+        fig.suptitle('Evolución temporal')
+
+        axs[0, 0].plot(t[tinic:tfinal], self.sequence_vin)
+        axs[0, 0].set(xlabel='time (µs)', ylabel='Voltage (V)', title='Vin')
+
+        axs[0, 1].plot(t[tinic:tfinal], self.sequence_rload)
+        axs[0, 1].set(xlabel='time (µs)', ylabel='Current (A)', title='Rload')
+
+        axs[1, 0].plot(t[tinic:tfinal], simul_results[3][tinic:tfinal])
+        axs[1, 0].set(xlabel='time (µs)', ylabel='Current (A)', title='i_li')
+
+        axs[1, 1].plot(t[tinic:tfinal], simul_results[0][tinic:tfinal])
+        axs[1, 1].set(xlabel='time (µs)', ylabel='Current (A)', title='i_lout')
+
+        axs[2, 0].plot(t[tinic:tfinal], simul_results[2][tinic:tfinal])
+        axs[2, 0].set(xlabel='time (µs)', ylabel='Voltage (V)', title='Vix')
+
+        axs[2, 1].plot(t[tinic:tfinal], simul_results[1][tinic:tfinal])
+        axs[2, 1].set(xlabel='time (µs)', ylabel='Voltage (V)', title='Vout')
+
+        axs[3, 1].plot(t[tinic:tfinal], simul_results[4][tinic:tfinal])
+        axs[3, 1].set(xlabel='time (µs)', ylabel='duty', title='PWM duty')
+
+        #axs[3, 0].plot(t[tinic:tfinal], simul_results[5][tinic:tfinal])
+        #axs[3, 0].set(xlabel='time (µs)', ylabel='Voltage(V)', title='Vout[n-1]')
+
+        for i in range(4):
+            for j in range(2):
+                axs[i, j].grid(True)
+
+        plt.savefig(filename)
+        if view:
+            plt.show()
+        plt.close()
 
 #   -----------------------------------------------------------------------------------
 #   Métodos graficado de resultado obtenido con un genoma dado
