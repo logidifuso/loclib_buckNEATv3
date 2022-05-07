@@ -56,8 +56,8 @@ class BuckClass:
         self.vals_rload = dcdc_config['vals_rload']
 
         # Tiempo simulado
-        self.steps = dcdc_config['steps']
-        self.steady = dcdc_config['steady']
+        self.steps = int(dcdc_config['steps'])
+        self.steady = int(dcdc_config['steady'])
 
         # Coeficientes del controlador PID
         self.kp = dcdc_config['kp']
@@ -104,8 +104,6 @@ class BuckClass:
         Unidades de tiempo se asumen en µsegundos.
         Duración de la secuencia: 10000 pasos <==> 10000 µs => 100 Hz
         :param vals:
-        :param steps:
-        :param steady:
         :return:
         """
         nominal_val = vals[0]
@@ -203,7 +201,7 @@ class BuckClass:
         """
         vout = self.run_buck_simulation_lvl3(net)[1]
         error = (vout - self.target_vout)
-        error[0:BuckClass.steady] = 0
+        error[0:self.steady] = 0
         error = np.absolute(error)
         #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
         error_tot = error.sum()/10000
@@ -319,7 +317,7 @@ class BuckClass:
         """
         vout = self.run_buck_simulation_lvl1b(net)[1]
         error = (vout - self.target_vout)
-        error[0:BuckClass.steady] = 0
+        error[0:self.steady] = 0
         error = np.absolute(error)
         #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
         error_tot = error.sum()/10000
@@ -481,7 +479,7 @@ class BuckClass:
         """
         vout = self.run_buck_simulation_l1_pid(net)[1]
         error = (vout - self.target_vout)
-        error[0:BuckClass.steady] = 0
+        error[0:self.steady] = 0
         error = np.absolute(error)
         #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
         error_tot = error.sum()/10000
