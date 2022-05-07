@@ -131,6 +131,21 @@ class BuckClass:
             secuencia[i + steady] = nominal_val + ampl * m.sin(2 * m.pi * freq * (i / 10 ** 6))
         return secuencia
 
+    @staticmethod
+    def func_sequence_full_sweep(vals, steps=steps, steady=steady):
+        nominal_val = vals[0]
+        ampl = vals[1]
+        f_inic = vals[2]
+        f_fin = vals[3]
+
+        secuencia = np.empty(steps + steady)
+        secuencia[:steady] = nominal_val
+
+        for i in range(steps):
+            freq = f_inic * 10**(np.log10(f_fin/f_inic)*(i/steps))
+            secuencia[i + steady] = nominal_val + ampl * m.sin(2 * m.pi * freq * (i / 10 ** 6))
+        return secuencia
+
 #   -----------------------------------------------------------------------------------
 #   Métodos de simulación y evaluación del fitness
 #   -----------------------------------------------------------------------------------
