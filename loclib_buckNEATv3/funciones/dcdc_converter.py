@@ -18,13 +18,13 @@ class BuckClass:
     - Métodos para graficar la salida producida por la ANN (y la función objetivo)
     """
 
-    steps = 10000
-    steady = 2000
+    #steps = 10000
+    #steady = 2000
 
     def __init__(self, dcdc_config):
 
-        steps = 10000
-        steady = 2000
+        #steps = 10000
+        #steady = 2000
 
         self.modelo = dcdc_config['modelo']
 
@@ -55,10 +55,15 @@ class BuckClass:
         self.vals_vin = dcdc_config['vals_vin']
         self.vals_rload = dcdc_config['vals_rload']
 
+        # Tiempo simulado
+        self.steps = dcdc_config['steps']
+        self.steady = dcdc_config['steady']
+
+        # Coeficientes del controlador PID
         self.kp = dcdc_config['kp']
         self.ki = dcdc_config['ki']
         self.kd = dcdc_config['kd']
-        self.error = np.zeros(steps+steady)
+        self.error = np.zeros(self.steps + self.steady)
 
         # todo: borrar si no lo utilizas al final
         '''
@@ -88,14 +93,13 @@ class BuckClass:
 #   -----------------------------------------------------------------------------------
 #   Creacción de secuencias de Vin y Rload. Staticmethods llamados desde __init__
 #   -----------------------------------------------------------------------------------
-    @staticmethod
-    def func_sequence_constante(vals, steps=steps+steady):
+    def func_sequence_constante(self, vals):
+        steps = self.steps + self.steady
         ampl = vals[0]
         secuencia = ampl * np.ones(steps)
         return secuencia
 
-    @staticmethod
-    def func_sequence_seno(vals, steps=steps, steady=steady):
+    def func_sequence_seno(self, vals):
         """
         Unidades de tiempo se asumen en µsegundos.
         Duración de la secuencia: 10000 pasos <==> 10000 µs => 100 Hz
@@ -108,42 +112,40 @@ class BuckClass:
         ampl = vals[1]
         freq = vals[2]
 
-        secuencia = np.empty(steps+steady)
-        secuencia[:steady] = nominal_val
-        for i in range(steps):
-            secuencia[i+steady] = nominal_val + ampl * m.sin(2*m.pi*freq*(i/10**6))
+        secuencia = np.empty(self.steps + self.steady)
+        secuencia[:self.steady] = nominal_val
+        for i in range(self.steps):
+            secuencia[i + self.steady] = nominal_val + ampl * m.sin(2*m.pi*freq*(i/10**6))
         return secuencia
 
-    @staticmethod
-    def func_sequence_barridof(vals, steps=steps, steady=steady):
+    def func_sequence_barridof(self, vals):
         nominal_val = vals[0]
         ampl = vals[1]
         f_inic = vals[2]
         f_fin = vals[3]
 
-        secuencia = np.empty(steps + steady)
-        secuencia[:steady] = nominal_val
+        secuencia = np.empty(self.steps + self.steady)
+        secuencia[:self.steady] = nominal_val
 
-        slope = (f_fin - f_inic) / steps
+        slope = (f_fin - f_inic) / self.steps
 
-        for i in range(steps):
+        for i in range(self.steps):
             freq = f_inic + slope * i
-            secuencia[i + steady] = nominal_val + ampl * m.sin(2 * m.pi * freq * (i / 10 ** 6))
+            secuencia[i + self.steady] = nominal_val + ampl * m.sin(2 * m.pi * freq * (i / 10 ** 6))
         return secuencia
 
-    @staticmethod
-    def func_sequence_full_sweep(vals, steps=steps, steady=steady):
+    def func_sequence_full_sweep(self, vals):
         nominal_val = vals[0]
         ampl = vals[1]
         f_inic = vals[2]
         f_fin = vals[3]
 
-        secuencia = np.empty(steps + steady)
-        secuencia[:steady] = nominal_val
+        secuencia = np.empty(self.steps + self.steady)
+        secuencia[:self.steady] = nominal_val
 
-        for i in range(steps):
-            freq = f_inic * 10**(np.log10(f_fin/f_inic)*(i/steps))
-            secuencia[i + steady] = nominal_val + ampl * m.sin(2 * m.pi * freq * (i / 10 ** 6))
+        for i in range(self.steps):
+            freq = f_inic * 10**(np.log10(f_fin/f_inic)*(i/self.steps))
+            secuencia[i + self.steady] = nominal_val + ampl * m.sin(2 * m.pi * freq * (i / 10 ** 6))
         return secuencia
 
 #   -----------------------------------------------------------------------------------
@@ -207,7 +209,9 @@ class BuckClass:
         error_tot = error.sum()/10000
         return np.exp(-error_tot)
 
-    def run_buck_simulation_lvl3(self, net, steps=steps+steady):
+    def run_buck_simulation_lvl3(self, net):
+
+        steps = self.steps + self.steady
 
         i_lout_record = np.zeros(steps)
         vout_record = np.zeros(steps)
@@ -321,7 +325,9 @@ class BuckClass:
         error_tot = error.sum()/10000
         return np.exp(-error_tot)
 
-    def run_buck_simulation_lvl1b(self, net, steps=steps+steady):
+    def run_buck_simulation_lvl1b(self, net):
+
+        steps = self.steps + self.steady
 
         i_lout_record = np.zeros(steps)
         vout_record = np.zeros(steps)
@@ -336,8 +342,8 @@ class BuckClass:
             # Aplica la salida de RN y obtiene nuevo estado. En realidad no hace falta
             # pasar self.duty, puedo leerlo dentro de buck_status_update pero por claridad...
             self.buck_status_update_lvl1b(self.sequence_vin[i],
-                                         self.sequence_rload[i],
-                                         self.duty)
+                                          self.sequence_rload[i],
+                                          self.duty)
             # Activa la RN y obtiene su salida
             self.duty = net.activate([self.sequence_vin[i],
                                       self.sequence_rload[i],
@@ -481,7 +487,9 @@ class BuckClass:
         error_tot = error.sum()/10000
         return np.exp(-error_tot)
 
-    def run_buck_simulation_l1_pid(self, net, steps=steps+steady):
+    def run_buck_simulation_l1_pid(self, net):
+
+        steps = self.steps + self.steady
 
         i_lout_record = np.zeros(steps)
         vout_record = np.ones(steps) * self.v_out
