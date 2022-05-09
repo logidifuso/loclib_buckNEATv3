@@ -204,7 +204,7 @@ class BuckClass:
         error[0:self.steady] = 0
         error = np.absolute(error)
         #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
-        error_tot = error.sum()/10000
+        error_tot = error.sum() / self.steps
         return np.exp(-error_tot)
 
     def run_buck_simulation_lvl3(self, net):
@@ -320,7 +320,7 @@ class BuckClass:
         error[0:self.steady] = 0
         error = np.absolute(error)
         #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
-        error_tot = error.sum()/10000
+        error_tot = error.sum() / self.steps
         return np.exp(-error_tot)
 
     def run_buck_simulation_lvl1b(self, net):
@@ -482,7 +482,7 @@ class BuckClass:
         error[0:self.steady] = 0
         error = np.absolute(error)
         #error = np.greater(error, self.tolerancia)*(self.penalty-1)*error + error
-        error_tot = error.sum()/10000
+        error_tot = error.sum() / self.steps
         return np.exp(-error_tot)
 
     def run_buck_simulation_l1_pid(self, net):
@@ -618,9 +618,51 @@ class BuckClass:
             plt.show()
         plt.close()
 
-#   -----------------------------------------------------------------------------------
-#   Métodos graficado de resultado obtenido con un genoma dado
-#   -----------------------------------------------------------------------------------
+    # --------------------------------------------------------------------------------- #
+    # -------------------- Level 1b - l1_pid_xloss --------------------------------- #
+    # --------------------------------------------------------------------------------- #
+
+    def eval_genomes_mp_buck_l1_pid_xloss(self, genomes, config):
+
+        net = neat.nn.FeedForwardNetwork.create(genomes, config)
+        genomes.fitness = BuckClass.fitness_buck_l1_pid_xloss(self, net)
+        return genomes.fitness
+
+    def eval_genomes_single_buck_l1_pid_xloss(self, genomes, config):
+        # single process
+        for genome_id, genome in genomes:
+            # net = RecurrentNet.create(genome, config,1)
+            net = neat.nn.FeedForwardNetwork.create(genome, config)
+            genome.fitness = BuckClass.fitness_buck_l1_pid_xloss(self, net)
+
+    def fitness_buck_l1_pid_xloss(self, net):
+        """
+        Función que evalúa el fitness del fenotipo producido  dada una cierta ANN
+        :param net:
+        :return fitness: El fitness se calcula como 1/e**(-error_total). De esta forma cuando
+        el error total es cero el fitness es 1 y conforme aumenta el fitness
+        disminuye tendiendo a cero cuando el error tiende infinito
+        """
+        k = np.log(12)/np.log(3)
+        vout = self.run_buck_simulation_l1_pid(net)[1]
+        error = (vout - self.target_vout)
+        error[0:self.steady] = 0
+        error = np.absolute(error)
+        error = error + np.greater(error, self.tolerancia)*(error**k - error)
+        error_tot = error.sum() / self.steps
+        return np.exp(-error_tot)
+
+    def plot_respuesta_buck_l1_pid_xloss(self, net, tinic=0, tfinal=None, view=False, filename='salida.svg'):
+        """
+        Plots the population's average and best fitness.
+        Simplemente llamo a plot_respuesta_buck_l1_pid puesto que las gráficas son exactax. las mismas
+        """
+        BuckClass.plot_respuesta_buck_l1_pid(self, net, tinic=0, tfinal=None, view=False, filename='salida.svg')
+
+
+#   ###################################################################################
+#               Métodos graficado de resultado obtenido con un genoma dado
+#   ###################################################################################
     def devuelve_metodo_graf(self):
         x = self.modelo
         do = f"plot_respuesta_{x}"
