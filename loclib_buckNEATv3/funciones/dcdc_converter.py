@@ -657,7 +657,7 @@ class BuckClass:
         Plots the population's average and best fitness.
         Simplemente llamo a plot_respuesta_buck_l1_pid puesto que las gráficas son exactax. las mismas
         """
-        BuckClass.plot_respuesta_buck_l1_pid(self, net, tinic=0, tfinal=None, view=False, filename='salida.svg')
+        self.plot_respuesta_buck_l1_pid(net, tinic, tfinal, view, filename)
 
 
 #   ###################################################################################
